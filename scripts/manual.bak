@@ -1,0 +1,149 @@
+"""
+Script de seed de usuários padrão do sistema
+Compatível com models.py (SQLAlchemy)
+"""
+
+import sys
+from pathlib import Path
+import logging
+import bcrypt
+import uuid
+from datetime import datetime
+
+# ============================================================================
+# PATH
+# ============================================================================
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT_DIR))
+
+# ============================================================================
+# IMPORTS DO PROJETO
+# ============================================================================
+
+from database import init_db, get_db
+from models import Tenant, Usuario
+
+# ============================================================================
+# LOGGING
+# ============================================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger("seed_users")
+
+# ============================================================================
+# CONFIG
+# ============================================================================
+
+DEFAULT_TENANT = {
+    "nome": "SLT Consult",
+    "cnpj": "00.000.000/0001-00",
+    "razao_social": "SLT Consultoria Empresarial LTDA",
+    "nome_fantasia": "SLT Consult",
+    "email": "contato@sltconsult.com.br",
+}
+
+DEFAULT_USERS = [
+    {
+        "nome": "Administrador Padrão",
+        "email": "admin@empresa.com",
+        "senha": "admin123",
+        "perfil": "ADMIN",
+    },
+    {
+        "nome": "William Lucas",
+        "email": "william.lucas@sltconsult.com.br",
+        "senha": "Slt@2024",
+        "perfil": "ADMIN",
+    },
+    {
+        "nome": "Super Administrador",
+        "email": "admin@consultslt.com.br",
+        "senha": "Consult@2026",
+        "perfil": "ADMIN",
+    },
+]
+
+# ============================================================================
+# SEED
+# ============================================================================
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt()
+    ).decode("utf-8")
+
+
+def seed_users():
+    logger.info("🔄 Inicializando banco de dados...")
+    init_db()
+
+    db = next(get_db())
+
+    try:
+        # ------------------------------------------------------------------
+        # TENANT PADRÃO
+        # ------------------------------------------------------------------
+        tenant = db.query(Tenant).filter(
+            Tenant.cnpj == DEFAULT_TENANT["cnpj"]
+        ).first()
+
+        if not tenant:
+            tenant = Tenant(
+                id=str(uuid.uuid4()),
+                **DEFAULT_TENANT,
+                ativo=True,
+                data_criacao=datetime.now()
+            )
+            db.add(tenant)
+            db.commit()
+            db.refresh(tenant)
+            logger.info("✅ Tenant padrão criado")
+        else:
+            logger.info("ℹ️ Tenant padrão já existe")
+
+        # ------------------------------------------------------------------
+        # USUÁRIOS
+        # ------------------------------------------------------------------
+        for user in DEFAULT_USERS:
+            existing = db.query(Usuario).filter(
+                Usuario.email == user["email"]
+            ).first()
+
+            if existing:
+                logger.info(f"ℹ️ Usuário já existe: {user['email']}")
+                continue
+
+            novo_usuario = Usuario(
+                id=str(uuid.uuid4()),
+                tenant_id=tenant.id,
+                nome=user["nome"],
+                email=user["email"],
+                senha_hash=hash_password(user["senha"]),
+                perfil=user["perfil"],
+                ativo=True,
+                data_criacao=datetime.now(),
+            )
+
+            db.add(novo_usuario)
+            db.commit()
+
+            logger.info(f"✅ Usuário criado: {user['email']}")
+
+        logger.info("🎉 Seed de usuários concluído com sucesso!")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Erro no seed: {e}")
+        raise
+
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    seed_users()
