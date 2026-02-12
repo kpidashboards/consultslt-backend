@@ -1,128 +1,56 @@
-"""
-API Fiscal (Paridade IRIS)
-Endpoints para cálculos fiscais e integração e-CAC
-"""
-
-from fastapi import APIRouter, HTTPException, Depends
-from typing import Optional
-from pydantic import BaseModel, Field
-from datetime import datetime
 import logging
+import uuid
+from datetime import datetime
+from typing import List
 
-from services.fiscal_calculation_service import FiscalCalculationService
-from services.ecac_service import ECACService, get_ecac_service
-from core.database import get_db
+from fastapi import APIRouter, HTTPException
+from backend.core.database import get_database
+from backend.schemas.fiscal import FiscalCreate, FiscalUpdate, FiscalResponse
 
 logger = logging.getLogger(__name__)
 
-# ===============================
-# Router
-# ===============================
-router = APIRouter(tags=["Fiscal (IRIS)"])
+router = APIRouter(prefix="/fiscal", tags=["Fiscal"])
 
-# ===============================
-# Services
-# ===============================
-def get_fiscal_service(
-    db=Depends(get_db),
-) -> FiscalCalculationService:
-    return FiscalCalculationService(db)
+# Listar todos os registros fiscais
+@router.get("/", response_model=List[FiscalResponse])
+async def listar_fiscais():
+    db = get_database()
+    fiscals = await db["fiscal"].find().to_list(100)
+    for f in fiscals:
+        f["id"] = str(f["_id"])
+    return fiscals
 
-# ===============================
-# Schemas
-# ===============================
-class SimplesNacionalRequest(BaseModel):
-    cnpj: str
-    periodo: str
-    receita_bruta_12m: float = Field(..., gt=0)
-    receita_mensal: float = Field(..., gt=0)
-    anexo: str = "anexo_iii"
-    empresa_id: Optional[str] = None
+# Criar novo registro fiscal
+@router.post("/", response_model=FiscalResponse)
+async def criar_fiscal(fiscal: FiscalCreate):
+    db = get_database()
+    fiscal_dict = fiscal.dict()
+    fiscal_dict["_id"] = str(uuid.uuid4())
+    fiscal_dict["created_at"] = datetime.utcnow()
+    fiscal_dict["updated_at"] = None
+    await db["fiscal"].insert_one(fiscal_dict)
+    fiscal_dict["id"] = fiscal_dict["_id"]
+    return fiscal_dict
 
+# Atualizar registro fiscal existente
+@router.put("/{fiscal_id}", response_model=FiscalResponse)
+async def atualizar_fiscal(fiscal_id: str, fiscal: FiscalUpdate):
+    db = get_database()
+    result = await db["fiscal"].update_one(
+        {"_id": fiscal_id},
+        {"$set": {**fiscal.dict(), "updated_at": datetime.utcnow()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Registro fiscal não encontrado")
+    fiscal_atualizado = await db["fiscal"].find_one({"_id": fiscal_id})
+    fiscal_atualizado["id"] = fiscal_atualizado["_id"]
+    return fiscal_atualizado
 
-class FatorRRequest(BaseModel):
-    cnpj: str
-    periodo: str
-    folha_salarios_12m: float = Field(..., gt=0)
-    receita_bruta_12m: float = Field(..., gt=0)
-    empresa_id: Optional[str] = None
-
-
-class SimulacaoEconomiaRequest(BaseModel):
-    cnpj: str
-    receita_bruta_12m: float
-    receita_mensal: float
-    folha_atual_12m: float
-
-# ===============================
-# Cálculos Fiscais
-# ===============================
-@router.post("/calcular/simples-nacional")
-async def calcular_simples_nacional(
-    request: SimplesNacionalRequest,
-    service: FiscalCalculationService = Depends(get_fiscal_service),
-):
-    try:
-        return await service.processar_simples_nacional(**request.dict())
-    except Exception:
-        logger.exception("Erro Simples Nacional")
-        raise HTTPException(status_code=500, detail="Erro ao calcular Simples Nacional")
-
-
-@router.post("/calcular/fator-r")
-async def calcular_fator_r(
-    request: FatorRRequest,
-    service: FiscalCalculationService = Depends(get_fiscal_service),
-):
-    try:
-        return await service.processar_fator_r(**request.dict())
-    except Exception:
-        logger.exception("Erro Fator R")
-        raise HTTPException(status_code=500, detail="Erro ao calcular Fator R")
-
-
-@router.post("/simular/economia-fator-r")
-async def simular_economia_fator_r(
-    request: SimulacaoEconomiaRequest,
-    service: FiscalCalculationService = Depends(get_fiscal_service),
-):
-    try:
-        return await service.simular_economia_fator_r(**request.dict())
-    except Exception:
-        logger.exception("Erro simulação Fator R")
-        raise HTTPException(status_code=500, detail="Erro ao simular economia Fator R")
-
-# ===============================
-# e-CAC (PRODUÇÃO – SEM MOCK)
-# ===============================
-@router.get("/ecac/certidoes/{cnpj}")
-async def consultar_certidoes_ecac(
-    cnpj: str,
-    ecac_service: ECACService = Depends(get_ecac_service),
-):
-    certidoes = await ecac_service.consultar_certidoes(cnpj)
-    return {
-        "status": "SUCESSO",
-        "cnpj": cnpj,
-        "data_consulta": datetime.utcnow().isoformat(),
-        "certidoes": certidoes,
-    }
-
-
-@router.get("/ecac/pendencias/{cnpj}")
-async def consultar_pendencias_ecac(
-    cnpj: str,
-    ecac_service: ECACService = Depends(get_ecac_service),
-):
-    return await ecac_service.consultar_pendencias(cnpj)
-
-
-@router.get("/ecac/simples-nacional/{cnpj}")
-async def consultar_simples_nacional_ecac(
-    cnpj: str,
-    ecac_service: ECACService = Depends(get_ecac_service),
-):
-    return await ecac_service.consultar_simples_nacional(cnpj)
-
-# Export
-fiscal_router = router
+# Deletar registro fiscal
+@router.delete("/{fiscal_id}")
+async def deletar_fiscal(fiscal_id: str):
+    db = get_database()
+    result = await db["fiscal"].delete_one({"_id": fiscal_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Registro fiscal não encontrado")
+    return {"detail": "Registro fiscal deletado com sucesso"}

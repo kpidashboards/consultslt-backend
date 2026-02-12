@@ -54,16 +54,23 @@ class GuiaUpdate(BaseModel):
     observacoes: Optional[str] = None
 
 
+
 class GuiaResponse(GuiaBase):
-    """Schema de resposta para guia"""
     id: str = Field(..., description="ID único da guia")
+    entity_id: str
+    version: int
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+    previous_version_id: Optional[str] = None
+    ativo: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
     status: StatusGuia = Field(default=StatusGuia.PENDENTE)
     data_pagamento: Optional[date] = None
     valor_pago: Optional[float] = None
     comprovante_path: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 

@@ -1,3 +1,12 @@
+from fastapi import APIRouter
+
+router = APIRouter(prefix="/ocr", tags=["OCR"])
+
+@router.get("/")
+async def listar_ocr():
+    return []
+# TODO: Auditoria deste módulo
+# - Conferir todos os endpoints, métodos HTTP e persistência real no MongoDB
 """
 API de OCR e Automação Documental (Paridade Kolossus)
 Endpoints para processamento inteligente de documentos fiscais
@@ -9,23 +18,21 @@ from datetime import datetime
 import logging
 import os
 
-from motor.motor_asyncio import AsyncIOMotorClient
-
 from services.ocr_service import OCRService
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/ocr", tags=["OCR e Automação Documental"])
 
-
-def get_db():
-    mongo_url = os.environ.get("MONGO_URL")
-    db_name = os.environ.get("DB_NAME", "sltdctfweb")
-    client = AsyncIOMotorClient(mongo_url)
-    return client[db_name]
+# =========================
+# Nome correto do banco
+# =========================
+db_name = os.environ.get("DB_NAME", "consultslt_db")
 
 
-def get_ocr_service(db=Depends(get_db)) -> OCRService:
+# Dependência para obter o serviço OCR
+def get_ocr_service() -> OCRService:
+    from services.database import get_db  # supondo que você tenha um client MongoDB
+    db = get_db()
     return OCRService(db)
 
 
@@ -36,39 +43,17 @@ async def processar_documento_ocr(
     tipo_esperado: Optional[str] = Form(default=None, description="Tipo esperado: nfe, nfse, das, darf, etc."),
     service: OCRService = Depends(get_ocr_service)
 ):
-    """
-    Processa um documento com OCR inteligente
-    
-    **Funcionalidades:**
-    - Extração de texto via OCR (Tesseract)
-    - Classificação automática do tipo de documento
-    - Extração estruturada de dados (CNPJ, valores, datas)
-    - Validação de dados extraídos
-    - Score de confiança do processamento
-    
-    **Tipos detectados automaticamente:**
-    - NF-e, NFS-e, CT-e
-    - DARF, DAS, GPS
-    - DCTFWeb
-    - Certidões (CND)
-    - Boletos e Extratos
-    
-    **Formatos suportados:**
-    - PDF (nativo ou escaneado)
-    - PNG, JPG, JPEG
-    """
+    """Processa um documento com OCR inteligente"""
     try:
         content = await arquivo.read()
-        
         resultado = await service.processar_documento(
             filename=arquivo.filename,
             content=content,
             empresa_id=empresa_id,
             tipo_esperado=tipo_esperado
         )
-        
         return resultado
-        
+
     except Exception as e:
         logger.error(f"Erro no processamento OCR: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -80,20 +65,13 @@ async def processar_lote_ocr(
     empresa_id: Optional[str] = Form(default=None),
     service: OCRService = Depends(get_ocr_service)
 ):
-    """
-    Processa múltiplos documentos em lote
-    
-    Limite: 20 arquivos por requisição
-    """
+    """Processa múltiplos documentos em lote (limite: 20 arquivos)"""
     if len(arquivos) > 20:
-        raise HTTPException(
-            status_code=400,
-            detail="Máximo de 20 arquivos por lote"
-        )
-    
+        raise HTTPException(status_code=400, detail="Máximo de 20 arquivos por lote")
+
     resultados = []
     erros = []
-    
+
     for arquivo in arquivos:
         try:
             content = await arquivo.read()
@@ -108,7 +86,7 @@ async def processar_lote_ocr(
                 "arquivo": arquivo.filename,
                 "erro": str(e)
             })
-    
+
     return {
         "processados": len(resultados),
         "erros": len(erros),
@@ -121,13 +99,11 @@ async def processar_lote_ocr(
 async def listar_documentos_ocr(
     empresa_id: Optional[str] = Query(default=None),
     tipo: Optional[str] = Query(default=None),
-    status: Optional[str] = Query(default=None, description="processado ou revisao_necessaria"),
-    limit: int = Query(default=50, ge=1, le=100),
+    status: Optional[str] = Query(default=None),
+    limit: int = Query(default=100),
     service: OCRService = Depends(get_ocr_service)
 ):
-    """
-    Lista documentos processados por OCR
-    """
+    """Lista documentos processados por OCR"""
     documentos = await service.listar_documentos_ocr(
         empresa_id=empresa_id,
         tipo=tipo,
@@ -142,15 +118,7 @@ async def obter_estatisticas_ocr(
     empresa_id: Optional[str] = Query(default=None),
     service: OCRService = Depends(get_ocr_service)
 ):
-    """
-    Obtém estatísticas de processamento OCR
-    
-    Retorna:
-    - Total de documentos processados
-    - Taxa de sucesso
-    - Score médio de confiança
-    - Distribuição por tipo de documento
-    """
+    """Obtém estatísticas de processamento OCR"""
     return await service.obter_estatisticas_ocr(empresa_id=empresa_id)
 
 
@@ -159,9 +127,7 @@ async def obter_documento_ocr(
     documento_id: str,
     service: OCRService = Depends(get_ocr_service)
 ):
-    """
-    Obtém detalhes de um documento processado
-    """
+    """Obtém detalhes de um documento processado"""
     documento = await service.obter_documento_ocr(documento_id)
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
@@ -170,9 +136,7 @@ async def obter_documento_ocr(
 
 @router.get("/tipos-suportados")
 async def listar_tipos_suportados():
-    """
-    Lista tipos de documentos suportados pela classificação automática
-    """
+    """Lista tipos de documentos suportados pela classificação automática"""
     return {
         "tipos": [
             {"codigo": "nfe", "descricao": "Nota Fiscal Eletrônica (NF-e)"},

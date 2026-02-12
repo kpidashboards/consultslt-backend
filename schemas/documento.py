@@ -48,27 +48,28 @@ class DocumentoUpload(BaseModel):
     processar_automaticamente: bool = True
 
 
+
 class DocumentoResponse(DocumentoBase):
-    """Schema de resposta para documento"""
     id: str = Field(..., description="ID único do documento")
+    entity_id: str
+    version: int
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+    previous_version_id: Optional[str] = None
+    ativo: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
     status: StatusDocumento = Field(default=StatusDocumento.PENDENTE)
     caminho_arquivo: Optional[str] = Field(default=None, description="Caminho do arquivo armazenado")
     tamanho_bytes: int = Field(default=0, description="Tamanho do arquivo em bytes")
     content_type: Optional[str] = Field(default=None, description="MIME type do arquivo")
-    
-    # Dados extraídos
     dados_extraidos: Optional[Dict[str, Any]] = Field(default=None, description="Dados extraídos pelo parser")
     confianca_extracao: float = Field(default=0.0, description="Confiança da extração (0-100)")
-    
-    # Metadados de processamento
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: Optional[datetime] = None
     processado_em: Optional[datetime] = None
     erro_processamento: Optional[str] = None
-    
-    # Relacionamento com obrigação
     obrigacao_id: Optional[str] = None
-    
+
     class Config:
         from_attributes = True
 

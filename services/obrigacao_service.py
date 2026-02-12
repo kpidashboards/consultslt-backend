@@ -4,13 +4,15 @@ Gerencia obrigações, vencimentos e alertas
 """
 
 import uuid
+import logging
 from datetime import datetime, date, timedelta
 from typing import Optional, Dict, Any, List
-import logging
 
-from motor.motor_asyncio import AsyncIOMotorDatabase
+# ✅ IMPORT RELATIVO CORRETO (padrão backend)
+from ..repositories.obrigacoes_repository import ObrigacoesRepository
 
-from schemas.obrigacao import (
+# ✅ IMPORT RELATIVO DOS SCHEMAS
+from ..schemas.obrigacao import (
     TipoObrigacao,
     StatusObrigacao,
     PrioridadeObrigacao,
@@ -26,19 +28,18 @@ class ObrigacaoService:
     """
     Serviço para gerenciamento de obrigações fiscais
     """
-    
-    def __init__(self, db: AsyncIOMotorDatabase):
-        self.db = db
-    
+
+    def __init__(self):
+        self.repo = ObrigacoesRepository()
+
     async def criar_obrigacao(self, dados: ObrigacaoCreate) -> ObrigacaoResponse:
         """
         Cria uma nova obrigação fiscal
         """
         obrigacao_id = str(uuid.uuid4())
-        
-        # Calcular prioridade baseada no vencimento
+
         prioridade = self._calcular_prioridade(dados.data_vencimento)
-        
+
         obrigacao = {
             "id": obrigacao_id,
             "tipo": dados.tipo.value,
@@ -58,16 +59,10 @@ class ObrigacaoService:
             "created_at": datetime.utcnow(),
             "updated_at": None
         }
-        
-        await self.db.obrigacoes.insert_one(obrigacao)
-        
-        # Buscar nome da empresa
-        empresa = await self.db.empresas.find_one({"id": dados.empresa_id})
-        if empresa:
-            obrigacao["empresa_nome"] = empresa.get("razao_social") or empresa.get("nome_fantasia")
-        
-        return ObrigacaoResponse(**obrigacao)
-    
+
+        obrigacao_criada = await self.repo.create_obrigacao(obrigacao)
+        return ObrigacaoResponse(**obrigacao_criada)
+
     async def atualizar_obrigacao(
         self,
         obrigacao_id: str,
@@ -76,58 +71,52 @@ class ObrigacaoService:
         """
         Atualiza uma obrigação existente
         """
-        obrigacao = await self.db.obrigacoes.find_one({"id": obrigacao_id})
+        obrigacao = await self.repo.get_obrigacao_by_id(obrigacao_id)
         if not obrigacao:
             return None
-        
-        update_data = {"updated_at": datetime.utcnow()}
-        
+
+        update_data: Dict[str, Any] = {
+            "updated_at": datetime.utcnow()
+        }
+
         if dados.status is not None:
             update_data["status"] = dados.status.value
+
         if dados.valor is not None:
             update_data["valor"] = dados.valor
+
         if dados.data_vencimento is not None:
             update_data["data_vencimento"] = dados.data_vencimento.isoformat()
-            # Recalcular prioridade
-            update_data["prioridade"] = self._calcular_prioridade(dados.data_vencimento).value
+            update_data["prioridade"] = self._calcular_prioridade(
+                dados.data_vencimento
+            ).value
+
         if dados.data_pagamento is not None:
             update_data["data_pagamento"] = dados.data_pagamento.isoformat()
             update_data["status"] = StatusObrigacao.CONCLUIDA.value
+
         if dados.prioridade is not None:
             update_data["prioridade"] = dados.prioridade.value
+
         if dados.observacoes is not None:
             update_data["observacoes"] = dados.observacoes
-        
-        await self.db.obrigacoes.update_one(
-            {"id": obrigacao_id},
-            {"$set": update_data}
+
+        obrigacao_atualizada = await self.repo.update_obrigacao(
+            obrigacao_id,
+            update_data
         )
-        
-        # Retornar obrigação atualizada
-        return await self.obter_obrigacao(obrigacao_id)
-    
+
+        return ObrigacaoResponse(**obrigacao_atualizada)
+
     async def obter_obrigacao(self, obrigacao_id: str) -> Optional[ObrigacaoResponse]:
         """
         Obtém uma obrigação pelo ID
         """
-        obrigacao = await self.db.obrigacoes.find_one({"id": obrigacao_id}, {"_id": 0})
+        obrigacao = await self.repo.get_obrigacao_by_id(obrigacao_id)
         if not obrigacao:
             return None
-        
-        # Converter datas de string para date
-        if obrigacao.get("data_vencimento") and isinstance(obrigacao["data_vencimento"], str):
-            obrigacao["data_vencimento"] = date.fromisoformat(obrigacao["data_vencimento"])
-        if obrigacao.get("data_pagamento") and isinstance(obrigacao["data_pagamento"], str):
-            obrigacao["data_pagamento"] = date.fromisoformat(obrigacao["data_pagamento"])
-        
-        # Buscar nome da empresa
-        if obrigacao.get("empresa_id"):
-            empresa = await self.db.empresas.find_one({"id": obrigacao["empresa_id"]})
-            if empresa:
-                obrigacao["empresa_nome"] = empresa.get("razao_social") or empresa.get("nome_fantasia")
-        
         return ObrigacaoResponse(**obrigacao)
-    
+
     async def listar_obrigacoes(
         self,
         empresa_id: Optional[str] = None,
@@ -142,8 +131,8 @@ class ObrigacaoService:
         """
         Lista obrigações com filtros e paginação
         """
-        filtro = {}
-        
+        filtro: Dict[str, Any] = {}
+
         if empresa_id:
             filtro["empresa_id"] = empresa_id
         if tipo:
@@ -152,34 +141,29 @@ class ObrigacaoService:
             filtro["status"] = status.value
         if cnpj:
             filtro["cnpj"] = cnpj
-        
-        # Filtro por data de vencimento
+
         if data_inicio or data_fim:
             filtro["data_vencimento"] = {}
             if data_inicio:
                 filtro["data_vencimento"]["$gte"] = data_inicio.isoformat()
             if data_fim:
                 filtro["data_vencimento"]["$lte"] = data_fim.isoformat()
-        
-        # Contar total
-        total = await self.db.obrigacoes.count_documents(filtro)
-        
-        # Buscar com paginação
+
         skip = (pagina - 1) * por_pagina
-        cursor = self.db.obrigacoes.find(
+
+        obrigacoes, total = await self.repo.list_obrigacoes(
             filtro,
-            {"_id": 0}
-        ).sort("data_vencimento", 1).skip(skip).limit(por_pagina)
-        
-        obrigacoes = await cursor.to_list(length=por_pagina)
-        
+            skip,
+            por_pagina
+        )
+
         return {
             "obrigacoes": obrigacoes,
             "total": total,
             "pagina": pagina,
             "por_pagina": por_pagina
         }
-    
+
     async def obter_proximos_vencimentos(
         self,
         dias: int = 30,
@@ -190,75 +174,57 @@ class ObrigacaoService:
         """
         hoje = date.today()
         data_limite = hoje + timedelta(days=dias)
-        
+
         filtro = {
-            "status": {"$in": [StatusObrigacao.PENDENTE.value, StatusObrigacao.EM_ANDAMENTO.value]},
+            "status": {
+                "$in": [
+                    StatusObrigacao.PENDENTE.value,
+                    StatusObrigacao.EM_ANDAMENTO.value
+                ]
+            },
             "data_vencimento": {
                 "$gte": hoje.isoformat(),
                 "$lte": data_limite.isoformat()
             }
         }
-        
+
         if empresa_id:
             filtro["empresa_id"] = empresa_id
-        
-        cursor = self.db.obrigacoes.find(
-            filtro,
-            {"_id": 0}
-        ).sort("data_vencimento", 1)
-        
-        return await cursor.to_list(length=100)
-    
+
+        return await self.repo.list_proximos_vencimentos(filtro, 100)
+
     async def atualizar_status_atrasados(self) -> int:
         """
         Atualiza status de obrigações atrasadas
-        Retorna quantidade de obrigações atualizadas
         """
-        hoje = date.today().isoformat()
-        
-        result = await self.db.obrigacoes.update_many(
-            {
-                "status": {"$in": [StatusObrigacao.PENDENTE.value, StatusObrigacao.EM_ANDAMENTO.value]},
-                "data_vencimento": {"$lt": hoje}
-            },
-            {
-                "$set": {
-                    "status": StatusObrigacao.ATRASADA.value,
-                    "prioridade": PrioridadeObrigacao.CRITICA.value,
-                    "updated_at": datetime.utcnow()
-                }
-            }
-        )
-        
-        if result.modified_count > 0:
-            logger.info(f"{result.modified_count} obrigações marcadas como atrasadas")
-        
-        return result.modified_count
-    
-    def _calcular_prioridade(self, data_vencimento: Optional[date]) -> PrioridadeObrigacao:
+        return await self.repo.update_status_atrasados()
+
+    async def deletar_obrigacao(self, obrigacao_id: str) -> bool:
+        """
+        Deleta uma obrigação
+        """
+        return await self.repo.delete_obrigacao(obrigacao_id)
+
+    def _calcular_prioridade(
+        self,
+        data_vencimento: Optional[date]
+    ) -> PrioridadeObrigacao:
         """
         Calcula prioridade baseada nos dias até o vencimento
         """
         if not data_vencimento:
             return PrioridadeObrigacao.NORMAL
-        
+
         hoje = date.today()
         dias_ate_vencimento = (data_vencimento - hoje).days
-        
+
         if dias_ate_vencimento < 0:
-            return PrioridadeObrigacao.CRITICA  # Atrasada
-        elif dias_ate_vencimento <= 3:
             return PrioridadeObrigacao.CRITICA
-        elif dias_ate_vencimento <= 7:
+        if dias_ate_vencimento <= 3:
+            return PrioridadeObrigacao.CRITICA
+        if dias_ate_vencimento <= 7:
             return PrioridadeObrigacao.ALTA
-        elif dias_ate_vencimento <= 15:
+        if dias_ate_vencimento <= 15:
             return PrioridadeObrigacao.NORMAL
-        else:
-            return PrioridadeObrigacao.BAIXA
-    
-    async def deletar_obrigacao(self, obrigacao_id: str) -> bool:
-        """
-        Deleta uma obrigação
-        """
-        result = await self.db.obrigacoes.delete_one({"id": obrigacao_id})
-        return result.deleted_count > 0
+
+        return PrioridadeObrigacao.BAIXA

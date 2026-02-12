@@ -12,12 +12,28 @@ class TipoObrigacao(str, Enum):
     """Tipos de obrigações fiscais"""
     DCTFWEB = "dctfweb"
     DAS = "das"
+    DEFIS = "defis"
+    DIMOB = "dimob"
+    DMED = "dmed"
+    EFD_REINF = "efd_reinf"
+    IBGE = "ibge"
+    SPED_ECD = "sped_ecd"
+    SPED_ECF = "sped_ecf"
+    DIRF = "dirf"
+    DIRBI = "dirbi"
+    GIA = "gia"
+    CAGED = "caged"
+    FGTS_DIGITAL = "fgts_digital"
+    DITR = "ditr"
+    ITR = "itr"
+    EFD_CONTRIBUICOES = "efd_contribuicoes"
+    EFD_ICMS_IPI = "efd_icms_ipi"
+    DECLAN = "declan"
     DARF = "darf"
     ECD = "ecd"
     ECF = "ecf"
     SPED_FISCAL = "sped_fiscal"
     SPED_CONTRIBUICOES = "sped_contribuicoes"
-    DIRF = "dirf"
     DCTF = "dctf"
     CERTIDAO = "certidao"
     OUTRO = "outro"
@@ -67,29 +83,28 @@ class ObrigacaoUpdate(BaseModel):
     observacoes: Optional[str] = None
 
 
+
 class ObrigacaoResponse(ObrigacaoBase):
-    """Schema de resposta para obrigação"""
     id: str = Field(..., description="ID único da obrigação")
+    entity_id: str
+    version: int
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+    previous_version_id: Optional[str] = None
+    ativo: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
     status: StatusObrigacao = Field(default=StatusObrigacao.PENDENTE)
     prioridade: PrioridadeObrigacao = Field(default=PrioridadeObrigacao.NORMAL)
-    
-    # Valores
     valor: float = Field(default=0.0)
     valor_pago: float = Field(default=0.0)
-    
-    # Datas
     data_vencimento: Optional[date] = None
     data_pagamento: Optional[date] = None
-    
-    # Relacionamentos
     documento_ids: List[str] = Field(default_factory=list)
     empresa_nome: Optional[str] = None
-    
-    # Metadados
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: Optional[datetime] = None
     observacoes: Optional[str] = None
-    
+
     class Config:
         from_attributes = True
 

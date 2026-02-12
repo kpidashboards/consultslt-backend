@@ -1,18 +1,13 @@
 """
 Serviço e-CAC (Production Ready)
-
-✔ SEM mock runtime
-✔ SEM simulação silenciosa
-✔ COM persistência MongoDB
-✔ Ambiente não altera comportamento
 """
 
 import logging
 from datetime import datetime
 from typing import Optional, List
+from fastapi import Depends
 
-from fastapi import Depends, HTTPException
-from core.database import get_db
+from backend.core.database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +16,9 @@ class ECACService:
     def __init__(self, db):
         self.db = db
 
-    # =====================================================
+    # ===============================
     # CERTIDÕES
-    # =====================================================
+    # ===============================
     async def consultar_certidoes(self, cnpj: str) -> List[dict]:
         collection = self.db.ecac_certidoes
 
@@ -34,7 +29,6 @@ class ECACService:
             {"_id": 0}
         ).to_list(length=100)
 
-        # Nunca gerar dado
         return documentos or []
 
     async def salvar_certidoes(self, cnpj: str, dados: List[dict]):
@@ -55,20 +49,18 @@ class ECACService:
         await collection.insert_many(dados)
         logger.info(f"✅ Certidões salvas para {cnpj}")
 
-    # =====================================================
+    # ===============================
     # PENDÊNCIAS
-    # =====================================================
+    # ===============================
     async def consultar_pendencias(self, cnpj: str) -> Optional[dict]:
         collection = self.db.ecac_pendencias
 
         logger.info(f"🔎 Buscando pendências e-CAC para {cnpj}")
 
-        document = await collection.find_one(
+        return await collection.find_one(
             {"cnpj": cnpj},
             {"_id": 0}
         )
-
-        return document  # None se não existir
 
     async def salvar_pendencias(self, cnpj: str, dados: dict):
         collection = self.db.ecac_pendencias
@@ -87,20 +79,18 @@ class ECACService:
 
         logger.info(f"✅ Pendências salvas para {cnpj}")
 
-    # =====================================================
+    # ===============================
     # SIMPLES NACIONAL
-    # =====================================================
+    # ===============================
     async def consultar_simples_nacional(self, cnpj: str) -> Optional[dict]:
         collection = self.db.ecac_simples_nacional
 
         logger.info(f"🔎 Buscando Simples Nacional para {cnpj}")
 
-        document = await collection.find_one(
+        return await collection.find_one(
             {"cnpj": cnpj},
             {"_id": 0}
         )
-
-        return document  # None se não existir
 
     async def salvar_simples_nacional(self, cnpj: str, dados: dict):
         collection = self.db.ecac_simples_nacional
@@ -120,8 +110,8 @@ class ECACService:
         logger.info(f"✅ Simples Nacional salvo para {cnpj}")
 
 
-# =====================================================
+# ===============================
 # Dependency Injection (CORRETA)
-# =====================================================
+# ===============================
 def get_ecac_service(db=Depends(get_db)) -> ECACService:
     return ECACService(db)

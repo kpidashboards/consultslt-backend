@@ -1,3 +1,7 @@
+"""
+ATENÇÃO: Este script é exclusivo para desenvolvimento/homologação.
+NUNCA execute em produção.
+"""
 import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 

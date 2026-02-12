@@ -1,3 +1,9 @@
+from fastapi import APIRouter
+
+router = APIRouter(prefix="/sharepoint", tags=["SharePoint"])
+
+# TODO: Auditoria deste módulo
+# - Conferir todos os endpoints, métodos HTTP e persistência real no MongoDB
 """
 Endpoints para integração SharePoint
 Permite controle manual e monitoramento da integração
@@ -39,7 +45,6 @@ async def get_sharepoint_status():
     """
     from clients.sharepoint_client import SharePointClient
     
-    client = SharePointClient()
     
     if not client.is_configured:
         return {
@@ -65,7 +70,6 @@ async def list_sharepoint_files(request: ListFilesRequest):
     from clients.sharepoint_client import SharePointClient, SharePointError
     from clients.azure_auth_client import AuthenticationError
     
-    client = SharePointClient()
     
     if not client.is_configured:
         raise HTTPException(
@@ -107,7 +111,6 @@ async def list_root_folders():
     """
     from clients.sharepoint_client import SharePointClient, SharePointError
     
-    client = SharePointClient()
     
     if not client.is_configured:
         raise HTTPException(
@@ -146,15 +149,11 @@ async def get_ingestion_robot_status():
     """
     Retorna status do robô de ingestão
     """
-    from motor.motor_asyncio import AsyncIOMotorClient
     import os
     
     # Conectar ao MongoDB
-    mongo_url = os.environ.get("MONGO_URL")
     db_name = os.environ.get("DB_NAME", "sltdctfweb")
     
-    client = AsyncIOMotorClient(mongo_url)
-    db = client[db_name]
     
     from robots.ingestion_robot import DocumentIngestionRobot
     robot = DocumentIngestionRobot(db)
@@ -170,16 +169,12 @@ async def run_ingestion_once(background_tasks: BackgroundTasks):
     """
     Executa o robô de ingestão uma vez (manualmente)
     """
-    from motor.motor_asyncio import AsyncIOMotorClient
     from robots.ingestion_robot import DocumentIngestionRobot
     import os
     
-    mongo_url = os.environ.get("MONGO_URL")
     db_name = os.environ.get("DB_NAME", "sltdctfweb")
     
     async def run_robot():
-        client = AsyncIOMotorClient(mongo_url)
-        db = client[db_name]
         
         robot = DocumentIngestionRobot(db)
         result = await robot.run_once()

@@ -1,130 +1,121 @@
-"""
-API de Usuários
-"""
-
+# backend/api/usuarios.py
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from typing import List
-from datetime import datetime, timezone
-import uuid
 
-from database import get_db
-from models import User
-from schemas import UserCreate, UserUpdate, UserResponse, PerfilUsuario, PERMISSOES_POR_PERFIL
-from auth_utils import get_current_user, require_admin, hash_password
+from backend.core.security import require_admin, hash_password
+from backend.schemas import UsuarioCreate, UsuarioUpdate, UsuarioResponse
+from backend.repositories.users_repository import UsersRepository
 
-router = APIRouter(prefix="/usuarios", tags=["Usuários"])
+router = APIRouter(
+    prefix="/usuarios",
+    tags=["Usuários"]
+)
 
+# ===============================
+# PERMISSÕES POR PERFIL
+# ===============================
+PERMISSOES_POR_PERFIL = {
+    "SUPER_ADMIN": [
+        "usuarios:criar",
+        "usuarios:editar",
+        "usuarios:remover",
+        "usuarios:listar",
+        "empresas:gerenciar",
+        "documentos:gerenciar",
+    ],
+    "ADMIN": [
+        "usuarios:criar",
+        "usuarios:editar",
+        "usuarios:listar",
+        "documentos:gerenciar",
+    ],
+    "USUARIO": [
+        "documentos:visualizar",
+    ],
+}
 
-@router.get("/", response_model=List[UserResponse])
-async def listar_usuarios(
-    db: Session = Depends(get_db),
-    admin_user: User = Depends(require_admin)
-):
-    """Lista todos os usuários (apenas admins)"""
-    usuarios = db.query(User).all()
-    return usuarios
+# ===============================
+# LISTAR USUÁRIOS
+# ===============================
+@router.get("/", response_model=List[UsuarioResponse])
+async def listar_usuarios(admin_user=Depends(require_admin)):
+    repo = UsersRepository()
+    usuarios = await repo.list_usuarios_ativos()
+    return [UsuarioResponse(**u) for u in usuarios]
 
-
-@router.get("/{usuario_id}", response_model=UserResponse)
-async def obter_usuario(
-    usuario_id: str,
-    db: Session = Depends(get_db),
-    admin_user: User = Depends(require_admin)
-):
-    """Obtém usuário por ID"""
-    usuario = db.query(User).filter(User.id == usuario_id).first()
+# ===============================
+# OBTER USUÁRIO POR ID
+# ===============================
+@router.get("/{usuario_id}", response_model=UsuarioResponse)
+async def obter_usuario(usuario_id: str, admin_user=Depends(require_admin)):
+    repo = UsersRepository()
+    usuario = await repo.get_usuario_by_id(usuario_id)
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    
-    return usuario
+    return UsuarioResponse(**usuario)
 
+# ===============================
+# CRIAR USUÁRIO
+# ===============================
+@router.post("/", response_model=UsuarioResponse, status_code=201)
+async def criar_usuario(usuario: UsuarioCreate, admin_user=Depends(require_admin)):
+    repo = UsersRepository()
 
-@router.post("/", response_model=UserResponse, status_code=201)
-async def criar_usuario(
-    usuario: UserCreate,
-    db: Session = Depends(get_db),
-    admin_user: User = Depends(require_admin)
-):
-    """Cria um novo usuário"""
-    # Verificar se email já existe
-    existing = db.query(User).filter(User.email == usuario.email).first()
+    existing = await repo.get_usuario_by_email(usuario.email)
     if existing:
         raise HTTPException(status_code=400, detail="Email já cadastrado")
-    
-    # Hash da senha
-    hashed_password = hash_password(usuario.password)
-    
-    # Permissões baseadas no perfil
-    permissoes = PERMISSOES_POR_PERFIL.get(usuario.perfil, [])
-    
-    novo_usuario = User(
-        id=str(uuid.uuid4()),
-        nome=usuario.nome,
-        email=usuario.email,
-        password=hashed_password,
-        perfil=usuario.perfil.value,
-        permissoes=permissoes,
-        ativo=usuario.ativo,
-        primeiro_login=True
-    )
-    
-    db.add(novo_usuario)
-    db.commit()
-    db.refresh(novo_usuario)
-    
-    return novo_usuario
 
+    perfil = usuario.perfil
+    permissoes = PERMISSOES_POR_PERFIL.get(perfil, [])
 
-@router.put("/{usuario_id}", response_model=UserResponse)
+    novo_usuario = {
+        "nome": usuario.nome,
+        "email": usuario.email,
+        "password": hash_password(usuario.password),
+        "perfil": perfil,
+        "permissoes": permissoes,
+        "ativo": True,
+        "primeiro_login": True,
+        "ultimo_acesso": None,
+    }
+
+    usuario_criado = await repo.create_usuario(novo_usuario)
+    return UsuarioResponse(**usuario_criado)
+
+# ===============================
+# ATUALIZAR USUÁRIO
+# ===============================
+@router.put("/{usuario_id}", response_model=UsuarioResponse)
 async def atualizar_usuario(
     usuario_id: str,
-    usuario_update: UserUpdate,
-    db: Session = Depends(get_db),
-    admin_user: User = Depends(require_admin)
+    usuario_update: UsuarioUpdate,
+    admin_user=Depends(require_admin),
 ):
-    """Atualiza usuário"""
-    usuario = db.query(User).filter(User.id == usuario_id).first()
+    repo = UsersRepository()
+
+    usuario = await repo.get_usuario_by_id(usuario_id)
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    
+
     update_data = usuario_update.model_dump(exclude_unset=True)
-    
-    # Se trocar senha, fazer hash
-    if 'password' in update_data:
-        update_data['password'] = hash_password(update_data['password'])
-    
-    # Se trocar perfil, atualizar permissões
-    if 'perfil' in update_data:
-        perfil_enum = update_data['perfil']
-        update_data['perfil'] = perfil_enum.value
-        update_data['permissoes'] = PERMISSOES_POR_PERFIL.get(perfil_enum, [])
-    
-    for field, value in update_data.items():
-        setattr(usuario, field, value)
-    
-    usuario.updated_at = datetime.now(timezone.utc)
-    
-    db.commit()
-    db.refresh(usuario)
-    
-    return usuario
 
+    if "password" in update_data:
+        update_data["password"] = hash_password(update_data["password"])
 
+    if "perfil" in update_data:
+        perfil = update_data["perfil"]
+        update_data["permissoes"] = PERMISSOES_POR_PERFIL.get(perfil, [])
+
+    usuario_atualizado = await repo.update_usuario(usuario_id, update_data)
+    return UsuarioResponse(**usuario_atualizado)
+
+# ===============================
+# DESATIVAR USUÁRIO (SOFT DELETE)
+# ===============================
 @router.delete("/{usuario_id}")
-async def excluir_usuario(
-    usuario_id: str,
-    db: Session = Depends(get_db),
-    admin_user: User = Depends(require_admin)
-):
-    """Desativa usuário (soft delete)"""
-    usuario = db.query(User).filter(User.id == usuario_id).first()
-    if not usuario:
+async def excluir_usuario(usuario_id: str, admin_user=Depends(require_admin)):
+    repo = UsersRepository()
+    ok = await repo.deactivate_usuario(usuario_id)
+    if not ok:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    
-    usuario.ativo = False
-    usuario.updated_at = datetime.now(timezone.utc)
-    
-    db.commit()
-    
     return {"success": True, "message": "Usuário desativado com sucesso"}

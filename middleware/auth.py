@@ -5,19 +5,21 @@ Middleware de Autenticação e Autorização (RBAC)
 from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional, List
-import jwt
+from jose import jwt, JWTError
 import os
 import logging
 from functools import wraps
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from schemas.usuario import PerfilUsuario
+# 🔹 Corrigido: import absoluto dentro do pacote backend
+from backend.schemas.usuario import PerfilUsuario
 
 logger = logging.getLogger(__name__)
 
 # Configurações JWT
-JWT_SECRET = os.environ.get('JWT_SECRET', 'sltdctfweb-secret-key-2024')
+JWT_SECRET = os.environ.get('JWT_SECRET')
 JWT_ALGORITHM = 'HS256'
+JWT_EXPIRE = int(os.environ.get('JWT_EXPIRE', '480'))
 
 # Security scheme
 security = HTTPBearer()
@@ -25,8 +27,8 @@ security = HTTPBearer()
 
 def get_db():
     """Obtém conexão com banco de dados"""
-    mongo_url = os.environ.get("MONGO_URL")
-    db_name = os.environ.get("DB_NAME", "consultslt")
+    mongo_url = os.environ.get("MONGO_URI") or os.environ.get("MONGO_URL")
+    db_name = os.environ.get("MONGO_DB") or os.environ.get("DB_NAME") or "consultslt_db"
     client = AsyncIOMotorClient(mongo_url)
     return client[db_name]
 
@@ -56,7 +58,11 @@ async def get_current_user(
             )
         
         # Buscar usuário no banco
-        user = await db.users.find_one({"id": user_id})
+        from bson import ObjectId
+        try:
+            user = await db.users.find_one({"_id": ObjectId(user_id)})
+        except Exception:
+            user = None
         
         if not user:
             raise HTTPException(
@@ -64,7 +70,8 @@ async def get_current_user(
                 detail="Usuário não encontrado"
             )
         
-        if not user.get('ativo', True):
+        # Se o campo ativo não existir, considera ativo
+        if user is not None and not user.get('ativo', True):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Usuário inativo"
@@ -72,15 +79,10 @@ async def get_current_user(
         
         return user
         
-    except jwt.ExpiredSignatureError:
+    except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token expirado"
-        )
-    except jwt.InvalidTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token inválido"
+            detail="Token inválido ou expirado"
         )
 
 
@@ -108,7 +110,6 @@ def require_role(required_roles: List[PerfilUsuario]):
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Extrair current_user dos kwargs
             current_user = kwargs.get('current_user')
             
             if not current_user:
@@ -117,7 +118,7 @@ def require_role(required_roles: List[PerfilUsuario]):
                     detail="Autenticação necessária"
                 )
             
-            user_perfil = current_user.get('perfil', 'user')
+            user_perfil = current_user.get('perfil', 'usuario')
             
             if user_perfil not in [role.value for role in required_roles]:
                 raise HTTPException(
@@ -142,7 +143,6 @@ def require_permission(required_permissions: List[str]):
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Extrair current_user dos kwargs
             current_user = kwargs.get('current_user')
             
             if not current_user:
@@ -157,7 +157,7 @@ def require_permission(required_permissions: List[str]):
             
             user_permissions = current_user.get('permissoes', [])
             
-            # Verificar se usuário tem todas as permissões necessárias
+            # Verificar se usuário tem pelo menos uma das permissões necessárias
             has_permission = any(perm in user_permissions for perm in required_permissions)
             
             if not has_permission:
@@ -174,32 +174,15 @@ def require_permission(required_permissions: List[str]):
 def check_permission(user: dict, permission: str) -> bool:
     """
     Verifica se usuário tem uma permissão específica
-    
-    Args:
-        user: Dicionário do usuário
-        permission: String da permissão (ex: "empresas.write")
-    
-    Returns:
-        True se tem permissão, False caso contrário
     """
-    # SUPER_ADMIN tem todas as permissões
     if user.get('perfil') == PerfilUsuario.SUPER_ADMIN.value:
         return True
-    
-    user_permissions = user.get('permissoes', [])
-    return permission in user_permissions
+    return permission in user.get('permissoes', [])
 
 
 def check_role(user: dict, roles: List[PerfilUsuario]) -> bool:
     """
     Verifica se usuário tem um dos perfis especificados
-    
-    Args:
-        user: Dicionário do usuário
-        roles: Lista de perfis aceitos
-    
-    Returns:
-        True se tem o perfil, False caso contrário
     """
-    user_perfil = user.get('perfil', 'user')
+    user_perfil = user.get('perfil', 'usuario')
     return user_perfil in [role.value for role in roles]

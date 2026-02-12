@@ -24,11 +24,18 @@ class ConfiguracaoUpdate(BaseModel):
     descricao: Optional[str] = None
 
 
+
 class ConfiguracaoResponse(ConfiguracaoBase):
-    """Schema de resposta para configuração"""
     id: str = Field(..., description="ID único")
+    entity_id: str
+    version: int
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+    previous_version_id: Optional[str] = None
+    ativo: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_by: Optional[str] = None
     updated_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True

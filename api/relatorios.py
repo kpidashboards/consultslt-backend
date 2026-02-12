@@ -1,85 +1,93 @@
-"""Endpoints para geração de Relatórios"""
+from fastapi import APIRouter
 
-from fastapi import APIRouter, HTTPException, Depends, Query
-from typing import Optional
+router = APIRouter(prefix="/relatorios", tags=["Relatórios"])
+
+@router.get("/")
+async def listar_relatorios():
+    return []
+# TODO: Auditoria deste módulo
+# - Conferir todos os endpoints, métodos HTTP e persistência real no MongoDB
+"""
+Endpoints para geração de Relatórios
+"""
+
 import logging
-import os
-from motor.motor_asyncio import AsyncIOMotorClient
-from datetime import datetime
 import uuid
+from datetime import datetime, date
+from typing import Optional
 
-from schemas.relatorio import (
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+
+from backend.schemas.relatorio import (
     RelatorioCreate,
     RelatorioResponse,
     RelatorioListResponse,
     TipoRelatorio,
     StatusRelatorio,
-    FormatoRelatorio
+    FormatoRelatorio,
 )
+from backend.repositories.relatorios_repository import RelatoriosRepository
+from backend.repositories.documentos_repository import DocumentosRepository
+from backend.repositories.obrigacoes_repository import ObrigacoesRepository
+from backend.repositories.guias_repository import GuiasRepository
+from backend.repositories.empresas_repository import EmpresasRepository
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/relatorios", tags=["Relatórios"])
 
-def get_db():
-    mongo_url = os.environ.get("MONGO_URL")
-    db_name = os.environ.get("DB_NAME", "consultslt")
-    client = AsyncIOMotorClient(mongo_url)
-    return client[db_name]
+# ===============================
+# Router
+# ===============================
+router = APIRouter(
+    prefix="/relatorios",
+    tags=["Relatórios"],
+)
 
+# ===============================
+# Criar relatório
+# ===============================
 @router.post("/", response_model=RelatorioResponse)
-async def criar_relatorio(dados: RelatorioCreate, db=Depends(get_db)):
-    """Cria e processa um novo relatório"""
+async def criar_relatorio(dados: RelatorioCreate):
+    repo = RelatoriosRepository()
+    doc_repo = DocumentosRepository()
+    obrig_repo = ObrigacoesRepository()
+    guias_repo = GuiasRepository()
     relatorio_dict = dados.model_dump()
-    relatorio_dict["id"] = str(uuid.uuid4())
     relatorio_dict["status"] = StatusRelatorio.PROCESSANDO
-    relatorio_dict["created_at"] = datetime.utcnow()
-    
-    # Converter datas para ISO string
-    if "periodo_inicio" in relatorio_dict:
-        from datetime import date
-        if isinstance(relatorio_dict["periodo_inicio"], date):
-            relatorio_dict["periodo_inicio"] = relatorio_dict["periodo_inicio"].isoformat()
-    if "periodo_fim" in relatorio_dict:
-        from datetime import date
-        if isinstance(relatorio_dict["periodo_fim"], date):
-            relatorio_dict["periodo_fim"] = relatorio_dict["periodo_fim"].isoformat()
-    
-    # Simular processamento e geração de dados
+    relatorio_dict["erro"] = None
     try:
-        # Buscar dados para o relatório
         filtro = {}
         if relatorio_dict.get("empresa_id"):
             filtro["empresa_id"] = relatorio_dict["empresa_id"]
-        
-        documentos_count = await db.documentos.count_documents(filtro)
-        obrigacoes_count = await db.obrigacoes.count_documents(filtro)
-        guias_count = await db.guias.count_documents(filtro)
-        
+        documentos_count = await doc_repo.count_documentos(filtro)
+        obrigacoes_count = await obrig_repo.count_obrigacoes(filtro)
+        guias_count = await guias_repo.count_guias(filtro)
         relatorio_dict["dados"] = {
             "documentos": documentos_count,
             "obrigacoes": obrigacoes_count,
             "guias": guias_count,
-            "periodo": f"{relatorio_dict['periodo_inicio']} a {relatorio_dict['periodo_fim']}"
+            "periodo": f"{relatorio_dict.get('periodo_inicio')} a {relatorio_dict.get('periodo_fim')}",
         }
         relatorio_dict["status"] = StatusRelatorio.CONCLUIDO
-        relatorio_dict["processado_em"] = datetime.utcnow()
     except Exception as e:
+        logger.exception("Erro ao processar relatório")
         relatorio_dict["status"] = StatusRelatorio.ERRO
         relatorio_dict["erro"] = str(e)
-    
-    await db.relatorios.insert_one(relatorio_dict)
-    return RelatorioResponse(**relatorio_dict)
+    relatorio_criado = await repo.create_relatorio(relatorio_dict)
+    return RelatorioResponse(**relatorio_criado)
 
+# ===============================
+# Listar relatórios
+# ===============================
 @router.get("/", response_model=RelatorioListResponse)
 async def listar_relatorios(
-    empresa_id: Optional[str] = Query(default=None),
-    tipo: Optional[TipoRelatorio] = Query(default=None),
-    status: Optional[StatusRelatorio] = Query(default=None),
-    pagina: int = Query(default=1, ge=1),
-    por_pagina: int = Query(default=20, ge=1, le=100),
-    db=Depends(get_db)
+    pagina: int = Query(1, ge=1),
+    por_pagina: int = Query(20, ge=1, le=100),
+    empresa_id: Optional[str] = None,
+    tipo: Optional[TipoRelatorio] = None,
+    status: Optional[StatusRelatorio] = None,
 ):
-    """Lista relatórios com filtros"""
+    repo = RelatoriosRepository()
     filtro = {}
     if empresa_id:
         filtro["empresa_id"] = empresa_id
@@ -87,59 +95,56 @@ async def listar_relatorios(
         filtro["tipo"] = tipo
     if status:
         filtro["status"] = status
-    
     skip = (pagina - 1) * por_pagina
-    cursor = db.relatorios.find(filtro).skip(skip).limit(por_pagina)
-    relatorios = await cursor.to_list(length=por_pagina)
-    total = await db.relatorios.count_documents(filtro)
-    
+    relatorios, total = await repo.list_relatorios(filtro, skip, por_pagina)
     return RelatorioListResponse(
         relatorios=[RelatorioResponse(**r) for r in relatorios],
         total=total,
         pagina=pagina,
-        por_pagina=por_pagina
+        por_pagina=por_pagina,
     )
 
+# ===============================
+# Obter relatório
+# ===============================
 @router.get("/{relatorio_id}", response_model=RelatorioResponse)
-async def obter_relatorio(relatorio_id: str, db=Depends(get_db)):
-    """Obtém detalhes de um relatório"""
-    relatorio = await db.relatorios.find_one({"id": relatorio_id})
+async def obter_relatorio(relatorio_id: str):
+    repo = RelatoriosRepository()
+    relatorio = await repo.get_relatorio_by_id(relatorio_id)
     if not relatorio:
         raise HTTPException(status_code=404, detail="Relatório não encontrado")
     return RelatorioResponse(**relatorio)
 
+# ===============================
+# Deletar relatório
+# ===============================
 @router.delete("/{relatorio_id}")
-async def deletar_relatorio(relatorio_id: str, db=Depends(get_db)):
-    """Deleta um relatório"""
-    result = await db.relatorios.delete_one({"id": relatorio_id})
-    if result.deleted_count == 0:
+async def deletar_relatorio(relatorio_id: str):
+    repo = RelatoriosRepository()
+    ok = await repo.delete_relatorio(relatorio_id)
+    if not ok:
         raise HTTPException(status_code=404, detail="Relatório não encontrado")
     return {"message": "Relatório deletado com sucesso"}
 
+# ===============================
+# Dashboard resumo
+# ===============================
 @router.get("/dashboard/resumo")
-async def dashboard_resumo(empresa_id: Optional[str] = Query(default=None), db=Depends(get_db)):
-    """Obtém resumo para dashboard"""
+async def resumo_dashboard(empresa_id: Optional[str] = None):
+    empresas_repo = EmpresasRepository()
+    doc_repo = DocumentosRepository()
+    obrig_repo = ObrigacoesRepository()
+    guias_repo = GuiasRepository()
     filtro = {}
     if empresa_id:
         filtro["empresa_id"] = empresa_id
-    
-    total_empresas = await db.empresas.count_documents({"ativo": True})
-    total_documentos = await db.documentos.count_documents(filtro)
-    total_obrigacoes = await db.obrigacoes.count_documents(filtro)
-    obrigacoes_pendentes = await db.obrigacoes.count_documents({**filtro, "status": "pendente"})
-    total_guias = await db.guias.count_documents(filtro)
-    guias_pendentes = await db.guias.count_documents({**filtro, "status": "pendente"})
-    alertas_nao_lidos = await db.alertas.count_documents({**filtro, "status": "pendente"})
-    certidoes_vencidas = await db.certidoes.count_documents({**filtro, "status": "vencida"})
-    
-    # Calcular valor total de guias pendentes
-    pipeline = [
-        {"$match": {**filtro, "status": "pendente"}},
-        {"$group": {"_id": None, "total": {"$sum": "$valor_total"}}}
-    ]
-    result = await db.guias.aggregate(pipeline).to_list(length=1)
-    valor_guias_pendentes = result[0]["total"] if result else 0
-    
+    total_empresas = await empresas_repo.count_empresas({"ativo": True})
+    total_documentos = await doc_repo.count_documentos(filtro)
+    total_obrigacoes = await obrig_repo.count_obrigacoes(filtro)
+    obrigacoes_pendentes = await obrig_repo.count_obrigacoes({**filtro, "status": "pendente"})
+    total_guias = await guias_repo.count_guias(filtro)
+    guias_pendentes = await guias_repo.count_guias({**filtro, "status": "pendente"})
+    valor_guias_pendentes = await guias_repo.sum_valor_pendentes(filtro)
     return {
         "total_empresas": total_empresas,
         "total_documentos": total_documentos,
@@ -148,6 +153,4 @@ async def dashboard_resumo(empresa_id: Optional[str] = Query(default=None), db=D
         "total_guias": total_guias,
         "guias_pendentes": guias_pendentes,
         "valor_guias_pendentes": valor_guias_pendentes,
-        "alertas_nao_lidos": alertas_nao_lidos,
-        "certidoes_vencidas": certidoes_vencidas
     }

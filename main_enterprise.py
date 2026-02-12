@@ -1,83 +1,77 @@
 """
-SLTWEB Enterprise - Aplicação FastAPI
-Arquivo principal da API
+ConsultSLT API
+Arquivo principal da aplicação FastAPI
 """
 
+# ===============================
+# 🔥 PRIMEIRA COISA DO ARQUIVO
+# ===============================
 from dotenv import load_dotenv
-load_dotenv()  # 🔥 PRIMEIRA COISA DO ARQUIVO
+load_dotenv()
 
+# ===============================
+# IMPORTS
+# ===============================
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from core.database import init_db, close_db
 
 # ===============================
-# Importar routers
-# ===============================
-from api import (
-    auth_router,
-    fiscal_router,
-    sharepoint_router,
-    documentos_router,
-    obrigacoes_router,
-    robots_router,
-    auditoria_router,
-    health_router,
-)
-
-# ===============================
-# Logging
+# CONFIGURAÇÃO DE LOGGING
 # ===============================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
-logger = logging.getLogger("sltweb")
+
+logger = logging.getLogger("consultslt")
 
 # ===============================
-# App FastAPI
+# CRIAÇÃO DA APP
 # ===============================
 app = FastAPI(
-    title="SLTWEB - SLT Consult Enterprise",
-    description="Plataforma unificada de gestão fiscal e automação documental",
+    title="ConsultSLT API",
     version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
 # ===============================
-# Eventos de startup / shutdown
+# CORS (React Frontend)
 # ===============================
-@app.on_event("startup")
-async def startup_event():
-    logger.info("🚀 Iniciando aplicação SLTWEB Enterprise...")
-    await init_db()
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://192.168.5.162:3000",  # acesso LAN se necessário
+]
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    await close_db()
-
-# ===============================
-# CORS
-# ===============================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ===============================
-# Rotas
+# EVENTOS DO BANCO
 # ===============================
-app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
-app.include_router(fiscal_router, prefix="/api/fiscal", tags=["Fiscal"])
-app.include_router(sharepoint_router, prefix="/api/sharepoint", tags=["SharePoint"])
-app.include_router(documentos_router, prefix="/api/documentos", tags=["Documentos"])
-app.include_router(obrigacoes_router, prefix="/api/obrigacoes", tags=["Obrigações"])
-app.include_router(robots_router, prefix="/api/robots", tags=["Robôs"])
-app.include_router(auditoria_router, prefix="/api/auditoria", tags=["Auditoria"])
-app.include_router(health_router, prefix="/api/health", tags=["Health"])
+from backend.core.database import register_db_events
+register_db_events(app)
 
-@app.get("/")
-async def root():
-    return {"message": "API SLTWEB funcionando!"}
+# ===============================
+# IMPORTAÇÃO DO ROUTER CENTRAL (RECOMENDADO)
+# ===============================
+from backend.api import api_router
+
+# ===============================
+# REGISTRO GLOBAL DAS ROTAS
+# ===============================
+app.include_router(api_router, prefix="/api")
+
+# ===============================
+# HEALTHCHECK
+# ===============================
+@app.get("/health", tags=["Health"])
+async def health_check():
+    return {"status": "ok"}

@@ -1,51 +1,119 @@
-"""
-Endpoints de Autenticação - usando MongoDB
-"""
+from fastapi import APIRouter, HTTPException, status, Depends
+from pydantic import BaseModel, EmailStr
+from datetime import datetime
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import bcrypt
+from backend.core.database import get_db
+from backend.core.security import (
+    verify_password,
+    get_password_hash,
+    create_access_token,
+)
 
-auth_router = APIRouter(tags=["Authentication"])
+# ==========================================================
+# 🚀 Router
+# ==========================================================
 
-# DB Dependency
-def get_db():
-    mongo_url = os.environ.get("MONGO_URL", "mongodb://127.0.0.1:27017")
-    db_name = os.environ.get("DB_NAME", "consultslt_db")
-    client = AsyncIOMotorClient(mongo_url)
-    return client[db_name]
+router = APIRouter(prefix="/auth", tags=["Auth"])
 
-# Schemas
+
+# ==========================================================
+# 📦 Schemas
+# ==========================================================
+
 class LoginRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str
+
 
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    email: EmailStr
+    perfil: str
 
-@auth_router.get("/ping")
-async def ping():
-    return {"message": "Auth endpoint OK"}
 
-@auth_router.post("/login", response_model=LoginResponse)
-async def login(request: LoginRequest, db=Depends(get_db)):
-    user = await db.users.find_one({"email": request.email})
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    role: Optional[str] = "user"
+
+
+# ==========================================================
+# 🔐 LOGIN
+# ==========================================================
+
+@router.post("/login", response_model=LoginResponse)
+async def login(dados: LoginRequest):
+    db = get_db()
+
+    # 🔎 Busca usuário
+    user = await db.users.find_one({"email": dados.email})
+
     if not user:
-        raise HTTPException(status_code=401, detail="Credenciais inválidas")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciais inválidas",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    if "password_hash" not in user:
-        raise HTTPException(status_code=500, detail="Usuário sem senha configurada")
+    # 🔐 Verifica senha
+    if not verify_password(dados.password, user.get("password", "")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciais inválidas",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    if not bcrypt.checkpw(
-        request.password.encode(),
-        user["password_hash"].encode()
-    ):
-        raise HTTPException(status_code=401, detail="Credenciais inválidas")
+    # 🕒 Atualiza último login
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"last_login": datetime.utcnow()}}
+    )
 
-    return {
-        "access_token": f"token-{user['email']}",
-        "token_type": "bearer"
+    # 🎟 Cria token JWT
+    token_data = {
+        "sub": user["email"],
+        "role": user.get("role", "user"),
+        "user_id": str(user["_id"])
     }
+
+    access_token = create_access_token(token_data)
+
+    return LoginResponse(
+        access_token=access_token,
+        email=user["email"],
+        perfil=user.get("role", "user")
+    )
+
+
+# ==========================================================
+# 👤 REGISTRO (opcional, mas recomendado)
+# ==========================================================
+
+@router.post("/register", status_code=201)
+async def register(dados: RegisterRequest):
+    db = get_db()
+
+    # Verifica duplicidade
+    existing_user = await db.users.find_one({"email": dados.email})
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Usuário já cadastrado"
+        )
+
+    hashed_password = get_password_hash(dados.password)
+
+    new_user = {
+        "email": dados.email,
+        "password": hashed_password,
+        "role": dados.role,
+        "created_at": datetime.utcnow(),
+        "last_login": None,
+        "ativo": True
+    }
+
+    await db.users.insert_one(new_user)
+
+    return {"message": "Usuário criado com sucesso"}

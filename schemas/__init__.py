@@ -1,7 +1,12 @@
-"""Schemas Pydantic para validação de dados"""
+"""
+Schemas Pydantic para validação de dados
+"""
 
+# ==============================
+# Usuário
+# ==============================
 from .usuario import (
-    PerfilUsuario,
+    PerfilUsuario,       # ✅ Certifique-se que esse Enum existe em usuario.py
     PermissaoSistema,
     UsuarioBase,
     UsuarioCreate,
@@ -12,6 +17,9 @@ from .usuario import (
     AlterarSenhaRequest,
 )
 
+# ==============================
+# Documento
+# ==============================
 from .documento import (
     TipoDocumento,
     StatusDocumento,
@@ -20,9 +28,12 @@ from .documento import (
     DocumentoUpload,
     DocumentoResponse,
     DocumentoListResponse,
-    DocumentoProcessamentoResult
+    DocumentoProcessamentoResult,
 )
 
+# ==============================
+# Obrigação
+# ==============================
 from .obrigacao import (
     TipoObrigacao,
     StatusObrigacao,
@@ -31,44 +42,63 @@ from .obrigacao import (
     ObrigacaoCreate,
     ObrigacaoUpdate,
     ObrigacaoResponse,
-    ObrigacaoListResponse
+    ObrigacaoListResponse,
 )
 
+# ==============================
+# Empresa
+# ==============================
 from .empresa import (
     EmpresaBase,
     EmpresaCreate,
-    EmpresaResponse
+    EmpresaResponse,
 )
 
+# ==============================
+# __all__ — Exportações públicas
+# ==============================
 __all__ = [
+    # ==============================
+    # Usuário
+    # ==============================
+    "PerfilUsuario",
+    "PermissaoSistema",
+    "UsuarioBase",
+    "UsuarioCreate",
+    "UsuarioUpdate",
+    "UsuarioResponse",
+    "UsuarioListResponse",
+    "TrocarSenhaRequest",
+    "AlterarSenhaRequest",
+
     # ==============================
     # Documento
     # ==============================
-    'TipoDocumento',
-    'StatusDocumento',
-    'DocumentoBase',
-    'DocumentoCreate',
-    'DocumentoUpload',
-    'DocumentoResponse',
-    'DocumentoListResponse',
-    'DocumentoProcessamentoResult',
+    "TipoDocumento",
+    "StatusDocumento",
+    "DocumentoBase",
+    "DocumentoCreate",
+    "DocumentoUpload",
+    "DocumentoResponse",
+    "DocumentoListResponse",
+    "DocumentoProcessamentoResult",
 
     # ==============================
     # Obrigação
     # ==============================
-    'TipoObrigacao',
-    'StatusObrigacao',
-    'PrioridadeObrigacao',
-    'ObrigacaoBase',
-    'ObrigacaoCreate',
-    'ObrigacaoUpdate',
-    'ObrigacaoResponse',
-    'ObrigacaoListResponse',
+    "TipoObrigacao",
+    "StatusObrigacao",
+    "PrioridadeObrigacao",
+    "ObrigacaoBase",
+    "ObrigacaoCreate",
+    "ObrigacaoUpdate",
+    "ObrigacaoResponse",
+    "ObrigacaoListResponse",
 
     # ==============================
     # Empresa
     # ==============================
-    'EmpresaBase',
-    'EmpresaCreate',
-    'EmpresaResponse',
+    "EmpresaBase",
+    "EmpresaCreate",
+    "EmpresaResponse",
 ]

@@ -53,14 +53,21 @@ class DebitoUpdate(BaseModel):
     observacoes: Optional[str] = None
 
 
+
 class DebitoResponse(DebitoBase):
-    """Schema de resposta para débito"""
     id: str = Field(..., description="ID único do débito")
+    entity_id: str
+    version: int
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+    previous_version_id: Optional[str] = None
+    ativo: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
     status: StatusDebito = Field(default=StatusDebito.ABERTO)
     data_quitacao: Optional[date] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 
