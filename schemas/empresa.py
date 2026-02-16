@@ -2,38 +2,39 @@
 Schemas Pydantic para Empresas
 Compatível com CRUD completo, persistência real e testes automatizados
 """
-from pydantic import BaseModel, Field, EmailStr, field_validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
 import re
 
 # ===============================
-# ENUMS (Sem alterações, está ótimo)
+# ENUMS
 # ===============================
 class RegimeTributario(str, Enum):
-    SIMPLES = "SIMPLES"
-    LUCRO_PRESUMIDO = "LUCRO_PRESUMIDO"
-    LUCRO_REAL = "LUCRO_REAL"
-    MEI = "MEI"
+    SIMPLES = "simples"
+    LUCRO_PRESUMIDO = "lucro_presumido"
+    LUCRO_REAL = "lucro_real"
+    MEI = "mei"
 
 # ===============================
-# VALIDADORES (Sem alterações, está ótimo)
+# VALIDADORES
 # ===============================
 def validar_cnpj(cnpj: str) -> str:
-    cnpj = re.sub(r"\D", "", cnpj)
-    if len(cnpj) != 14:
+    """Remove formatação e valida CNPJ"""
+    cnpj_clean = re.sub(r"\D", "", cnpj)
+    if len(cnpj_clean) != 14:
         raise ValueError("CNPJ deve conter 14 dígitos")
-    return cnpj
+    return cnpj_clean
 
 # ===============================
-# BASE (Sem alterações, está ótimo)
+# BASE
 # ===============================
 class EmpresaBase(BaseModel):
-    cnpj: str = Field(..., example="11222333000181")
-    razao_social: str = Field(..., example="Empresa Exemplo LTDA")
-    nome_fantasia: Optional[str] = None
-    regime: RegimeTributario = RegimeTributario.SIMPLES
+    cnpj: str = Field(..., example="11222333000181", description="CNPJ da empresa (14 dígitos)")
+    razao_social: str = Field(..., example="Empresa Exemplo LTDA", description="Razão Social")
+    nome_fantasia: Optional[str] = Field(None, example="Empresa Exemplo", description="Nome Fantasia")
+    regime: str = Field("simples", description="Regime tributário")
     inscricao_estadual: Optional[str] = None
     inscricao_municipal: Optional[str] = None
     endereco: Optional[str] = None
@@ -41,27 +42,36 @@ class EmpresaBase(BaseModel):
     estado: Optional[str] = Field(None, max_length=2)
     cep: Optional[str] = None
     telefone: Optional[str] = None
-    email: Optional[EmailStr] = None
-    ativo: bool = True
+    email: Optional[str] = None
+    receita_bruta: float = Field(0.0, description="Receita bruta anual em R$")
+    fator_r: float = Field(0.0, description="Fator R para simples nacional (%)")
+    ativo: bool = Field(True, description="Status ativo/inativo")
 
-    @field_validator("cnpj")
+    @field_validator("cnpj", mode="before")
     @classmethod
     def validar_cnpj_field(cls, v):
         return validar_cnpj(v)
 
+    @field_validator("regime", mode="before")
+    @classmethod
+    def validar_regime(cls, v):
+        if v not in ["simples", "lucro_presumido", "lucro_real", "mei"]:
+            raise ValueError("Regime inválido")
+        return v
+
 # ===============================
-# CREATE (Sem alterações)
+# CREATE
 # ===============================
 class EmpresaCreate(EmpresaBase):
     pass
 
 # ===============================
-# UPDATE (Sem alterações)
+# UPDATE (Todos os campos opcionais)
 # ===============================
 class EmpresaUpdate(BaseModel):
     razao_social: Optional[str] = None
     nome_fantasia: Optional[str] = None
-    regime: Optional[RegimeTributario] = None
+    regime: Optional[str] = None
     inscricao_estadual: Optional[str] = None
     inscricao_municipal: Optional[str] = None
     endereco: Optional[str] = None
@@ -69,34 +79,24 @@ class EmpresaUpdate(BaseModel):
     estado: Optional[str] = Field(None, max_length=2)
     cep: Optional[str] = None
     telefone: Optional[str] = None
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None
+    receita_bruta: Optional[float] = None
+    fator_r: Optional[float] = None
     ativo: Optional[bool] = None
 
 # ===============================
-# RESPONSE (VERSÃO CORRIGIDA E SIMPLIFICADA)
+# RESPONSE
 # ===============================
 class EmpresaResponse(EmpresaBase):
-    # ✅ O ID é uma string (representação do ObjectId do MongoDB).
-    id: str
-    
-    # ✅ O campo 'ativo' já está na classe base, mas podemos mantê-lo se quisermos garantir que ele sempre apareça na resposta.
-    ativo: bool
-    
-    # ✅ 'created_at' é adicionado pela nossa API, então ele deve estar aqui.
+    id: str = Field(..., description="ID único (MongoDB ObjectId)")
     created_at: datetime
-    
-    # ✅ 'updated_at' é opcional, pois só existirá após uma atualização.
     updated_at: Optional[datetime] = None
 
-    # ❌ REMOVIDOS os campos que não existem no nosso documento do banco de dados:
-    # entity_id, version, valid_from, valid_to, previous_version_id, created_by
-
     class Config:
-        # Garante que o Pydantic consiga ler os dados do objeto do MongoDB.
         from_attributes = True
 
 # ===============================
-# LIST RESPONSE (Sem alterações, mas agora usará o EmpresaResponse corrigido)
+# LIST RESPONSE
 # ===============================
 class EmpresaListResponse(BaseModel):
     items: List[EmpresaResponse]

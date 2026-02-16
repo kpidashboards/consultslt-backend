@@ -1,46 +1,73 @@
-
+"""
+Repository para Empresas
+Métodos básicos de persistência no MongoDB
+"""
 from datetime import datetime
+from bson import ObjectId
 from backend.repositories.base import BaseRepository
 
 class EmpresaRepository(BaseRepository):
-    async def create(self, data, created_by=None):
-        now = datetime.utcnow()
-        entity_id = str(uuid.uuid4())
-        data = data.copy()
-        data["entity_id"] = entity_id
-        data["version"] = 1
-        data["created_at"] = now
-        data["created_by"] = created_by
-        data["valid_from"] = now
-        data["valid_to"] = None
-        data["previous_version_id"] = None
+    """
+    CRUD repository para empresas
+    Sem versionamento complexo - apenas persistência simples
+    """
+
+    async def create(self, data):
+        """Cria uma nova empresa"""
+        if not isinstance(data, dict):
+            data = data.model_dump()
+        
+        data["created_at"] = datetime.utcnow()
+        data["updated_at"] = None
+        
         result = await self.db.empresas.insert_one(data)
         data["_id"] = result.inserted_id
         return data
 
     async def list(self):
-        return await self.db.empresas.find().to_list(100)
+        """Lista todas as empresas"""
+        cursor = self.db.empresas.find().sort("razao_social", 1)
+        return await cursor.to_list(length=None)
 
-    async def update(self, empresa_id, update_data, updated_by=None):
-        # Buscar versão atual
-        current = await self.db.empresas.find_one({"_id": empresa_id, "valid_to": None})
-        if not current:
+    async def get_by_id(self, empresa_id):
+        """Obtém uma empresa pelo ID"""
+        if isinstance(empresa_id, str):
+            empresa_id = ObjectId(empresa_id)
+        return await self.db.empresas.find_one({"_id": empresa_id})
+
+    async def get_by_cnpj(self, cnpj):
+        """Obtém uma empresa pelo CNPJ"""
+        return await self.db.empresas.find_one({"cnpj": cnpj})
+
+    async def update(self, empresa_id, update_data):
+        """Atualiza uma empresa"""
+        if isinstance(empresa_id, str):
+            empresa_id = ObjectId(empresa_id)
+        
+        if not isinstance(update_data, dict):
+            update_data = update_data.model_dump(exclude_none=True)
+        
+        update_data["updated_at"] = datetime.utcnow()
+        
+        result = await self.db.empresas.update_one(
+            {"_id": empresa_id},
+            {"$set": update_data}
+        )
+        
+        if result.matched_count == 0:
             return None
-        now = datetime.utcnow()
-        # Fechar validade da versão atual
-        await self.db.empresas.update_one({"_id": empresa_id}, {"$set": {"valid_to": now}})
-        # Mover para histórico
-        await self.db.empresas_history.insert_one(current)
-        # Criar nova versão
-        new_version = current.copy()
-        new_version.update(update_data)
-        new_version["version"] = current.get("version", 1) + 1
-        new_version["created_at"] = current["created_at"]
-        new_version["created_by"] = current.get("created_by")
-        new_version["valid_from"] = now
-        new_version["valid_to"] = None
-        new_version["previous_version_id"] = str(empresa_id)
-        new_version.pop("_id", None)
-        result = await self.db.empresas.insert_one(new_version)
-        new_version["_id"] = result.inserted_id
-        return new_version
+        
+        return await self.get_by_id(empresa_id)
+
+    async def delete(self, empresa_id):
+        """Deleta uma empresa"""
+        if isinstance(empresa_id, str):
+            empresa_id = ObjectId(empresa_id)
+        
+        result = await self.db.empresas.delete_one({"_id": empresa_id})
+        return result.deleted_count > 0
+
+    async def delete_by_cnpj(self, cnpj):
+        """Deleta uma empresa pelo CNPJ"""
+        result = await self.db.empresas.delete_one({"cnpj": cnpj})
+        return result.deleted_count > 0

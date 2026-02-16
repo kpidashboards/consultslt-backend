@@ -162,9 +162,20 @@ async def init_empresas():
             "cnpj": "11222333000181",
             "razao_social": "Empresa Exemplo LTDA",
             "nome_fantasia": "Empresa Exemplo",
-            "regime": "SIMPLES",
+            "regime": "simples",
+            "inscricao_estadual": None,
+            "inscricao_municipal": None,
+            "endereco": "Rua Exemplo, 123",
+            "cidade": "São Paulo",
+            "estado": "SP",
+            "cep": "01234-567",
+            "telefone": "(11) 3000-0000",
+            "email": "empresa@example.com",
+            "receita_bruta": 0.0,
+            "fator_r": 0.0,
             "ativo": True,
-            "created_at": datetime.utcnow()
+            "created_at": datetime.utcnow(),
+            "updated_at": None
         }
     ]
 
