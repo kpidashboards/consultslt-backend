@@ -19,6 +19,7 @@ app.use(auditoria)
 app.use('/empresas', require('./routes/empresas'))
 app.use('/ocr', require('./routes/ocr'))
 app.use('/dashboard', require('./routes/dashboard'))
+app.use('/fiscal', require('./routes/fiscal'))
 
 app.listen(3000, () =>
   console.log('🚀 API rodando em http://localhost:3000')
