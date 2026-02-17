@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # CONFIGURAÇÃO DE LOGGING
 # ===============================
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Alterado para DEBUG
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 
