@@ -28,6 +28,14 @@ api_router.add_api_route(
     tags=["Fiscal"]
 )
 
+# Registro manual da rota `/fiscal_data/test/all-documents`
+api_router.add_api_route(
+    path="/fiscal/fiscal_data/test/all-documents",
+    endpoint=listar_todos_fiscal_data,
+    methods=["GET"],
+    tags=["Fiscal"]
+)
+
 # Registro manual da rota `/fiscal_data/test/{id}`
 api_router.add_api_route(
     path="/fiscal/fiscal_data/test/{id}",

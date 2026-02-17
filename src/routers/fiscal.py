@@ -59,7 +59,7 @@ async def listar_todos_fiscal_data(db=Depends(get_database)):
         print("[DEBUG] Iniciando listagem de documentos na coleção fiscal_data")
         fiscais_data = await db["fiscal_data"].find().to_list(100)
         print(f"[DEBUG] Documentos encontrados: {fiscais_data}")
-        return fiscais_data
+        return {"documents": fiscais_data}
     except Exception as e:
         print(f"[ERROR] Erro ao listar documentos: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao listar documentos: {e}")
@@ -175,15 +175,23 @@ async def insert_test_document(db = Depends(get_database)):
         raise HTTPException(status_code=500, detail="Erro ao inserir documento.")
 
 @fiscal_router.get("/fiscal_data/test/all-documents")
-async def listar_todos_fiscal_data(db=Depends(get_database)):
+async def listar_todos_fiscal_data():
+    from backend.core.database import connect_db, get_db
     try:
-        print("[DEBUG] Listando todos os documentos da coleção fiscal_data")
+        print("[DEBUG] Rota `/fiscal_data/test/all-documents` iniciada.")
+        await connect_db()
+        db = get_db()
+        print("[DEBUG] Conexão com o banco de dados estabelecida.")
+
+        print("[DEBUG] Listando todos os documentos da coleção fiscal_data.")
         fiscais_data = await db["fiscal_data"].find().to_list(100)
         print(f"[DEBUG] Documentos encontrados: {fiscais_data}")
-        return fiscais_data
+        return {"documents": fiscais_data}
     except Exception as e:
         print(f"[ERROR] Erro ao listar documentos: {e}")
-        raise HTTPException(status_code=500, detail="Erro ao listar documentos.")
+        raise HTTPException(status_code=500, detail=f"Erro ao listar documentos: {e}")
+    finally:
+        print("[DEBUG] Rota `/fiscal_data/test/all-documents` finalizada.")
 
 # Remover registro redundante do router
 # app = FastAPI()
