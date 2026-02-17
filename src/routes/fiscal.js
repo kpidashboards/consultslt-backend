@@ -1,6 +1,46 @@
 const router = require('express').Router()
 const FiscalIris = require('../models/FiscalIris')
 
+// Reorganizando as rotas para evitar conflitos
+
+// GET: Consultar certidões do e-CAC
+router.get('/ecac/certidoes/:cnpj', async (req, res) => {
+  console.log(`Received request for certidoes with CNPJ: ${req.params.cnpj}`)
+  try {
+    const { cnpj } = req.params;
+
+    // Simulação de consulta ao e-CAC para certidões
+    const certidoes = {
+      status: 'regular',
+      detalhes: [
+        { tipo: 'Certidão Negativa de Débitos', validade: '2026-12-31' }
+      ]
+    };
+
+    res.status(200).json(certidoes);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET: Consultar pendências do e-CAC
+router.get('/ecac/pendencias/:cnpj', async (req, res) => {
+  console.log(`Received request for pendencias with CNPJ: ${req.params.cnpj}`)
+  try {
+    const { cnpj } = req.params;
+
+    // Simulação de consulta ao e-CAC para pendências
+    const pendencias = [
+      { descricao: 'Débito em aberto', valor: 1200.00 },
+      { descricao: 'Multa por atraso', valor: 500.00 }
+    ];
+
+    res.status(200).json(pendencias);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST: Criar novo cálculo fiscal com integração de dados do e-CAC
 router.post('/', async (req, res) => {
   try {
