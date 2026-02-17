@@ -1,160 +1,123 @@
-const router = require('express').Router()
-const FiscalIris = require('../models/FiscalIris')
+const express = require('express');
+const router = express.Router();
+const { ObjectId } = require('mongodb');
+const db = require('../db'); // Supondo que exista um módulo para conexão com o MongoDB
 
-// Reorganizando as rotas para evitar conflitos
-
-// GET: Consultar certidões do e-CAC
+// Mock para consultas ao e-CAC
 router.get('/ecac/certidoes/:cnpj', async (req, res) => {
-  console.log(`Received request for certidoes with CNPJ: ${req.params.cnpj}`)
-  try {
-    const { cnpj } = req.params;
+  const { cnpj } = req.params;
+  console.log(`Consulta de certidões para o CNPJ: ${cnpj}`);
 
-    // Simulação de consulta ao e-CAC para certidões
-    const certidoes = {
-      status: 'regular',
-      detalhes: [
-        { tipo: 'Certidão Negativa de Débitos', validade: '2026-12-31' }
-      ]
-    };
+  const certidoes = {
+    status: 'regular',
+    consultadoEm: new Date().toISOString(),
+  };
 
-    res.status(200).json(certidoes);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  // Registrar consulta no banco
+  await db.collection('fiscal_iris').updateOne(
+    { cnpj },
+    { $set: { certidoes } },
+    { upsert: true }
+  );
+
+  res.status(200).json(certidoes);
 });
 
-// GET: Consultar pendências do e-CAC
 router.get('/ecac/pendencias/:cnpj', async (req, res) => {
-  console.log(`Received request for pendencias with CNPJ: ${req.params.cnpj}`)
+  const { cnpj } = req.params;
+  console.log(`Consulta de pendências para o CNPJ: ${cnpj}`);
+
+  const pendencias = [
+    { descricao: 'DAS em atraso', periodo: '01/2025' },
+    { descricao: 'Multa por atraso', periodo: '12/2024' },
+  ];
+
+  // Registrar consulta no banco
+  await db.collection('fiscal_iris').updateOne(
+    { cnpj },
+    { $set: { pendencias } },
+    { upsert: true }
+  );
+
+  res.status(200).json(pendencias);
+});
+
+// CRUD do módulo fiscal (IRIS)
+router.post('/iris', async (req, res) => {
   try {
-    const { cnpj } = req.params;
+    const data = req.body;
+    data.createdAt = new Date();
+    data.updatedAt = new Date();
 
-    // Simulação de consulta ao e-CAC para pendências
-    const pendencias = [
-      { descricao: 'Débito em aberto', valor: 1200.00 },
-      { descricao: 'Multa por atraso', valor: 500.00 }
-    ];
-
-    res.status(200).json(pendencias);
+    const result = await db.collection('fiscal_iris').insertOne(data);
+    res.status(201).json(result.ops[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// POST: Criar novo cálculo fiscal com integração de dados do e-CAC
-router.post('/', async (req, res) => {
+router.get('/iris', async (req, res) => {
   try {
-    const { cnpj, empresa, periodo, receitaBruta12M, receitaMensal, folhaSalarios12M, userId } = req.body;
-
-    // Simulação de cálculo de Fator R e DAS
-    const fatorR = folhaSalarios12M / receitaBruta12M;
-    const anexo = fatorR >= 0.28 ? 'Anexo III' : 'Anexo V';
-    const valorDAS = receitaMensal * 0.18; // Exemplo de cálculo
-
-    // Simulação de consulta ao e-CAC
-    const ecacData = {
-      certidoes: [{ status: 'regular', detalhes: [] }],
-      pendencias: [{ descricao: 'Débito em aberto', valor: 1200.00 }]
-    };
-
-    const fiscal = await FiscalIris.create({
-      cnpj,
-      empresa,
-      periodo,
-      receitaBruta12M,
-      receitaMensal,
-      folhaSalarios12M,
-      fatorR,
-      anexo,
-      valorDAS,
-      certidoes: ecacData.certidoes[0],
-      pendencias: ecacData.pendencias,
-      userId,
-      ecacData
-    });
-
-    res.status(201).json(fiscal);
+    const calculos = await db.collection('fiscal_iris').find({ deletedAt: null }).toArray();
+    res.status(200).json(calculos);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-})
+});
 
-// GET: Listar cálculos fiscais com filtros
-router.get('/', async (req, res) => {
+router.get('/iris/:id', async (req, res) => {
   try {
-    const { cnpj, periodo, status } = req.query;
-    const query = { deletedAt: null };
+    const { id } = req.params;
+    const calculo = await db.collection('fiscal_iris').findOne({ _id: ObjectId(id), deletedAt: null });
 
-    if (cnpj) query.cnpj = cnpj;
-    if (periodo) query.periodo = periodo;
-    if (status) query['certidoes.status'] = status;
-
-    const fiscais = await FiscalIris.find(query);
-    res.json(fiscais);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-})
-
-// GET: Detalhar cálculo fiscal por ID
-router.get('/:id', async (req, res) => {
-  try {
-    const fiscal = await FiscalIris.findById(req.params.id);
-    if (!fiscal || fiscal.deletedAt) {
-      return res.status(404).json({ error: 'Registro não encontrado' });
-    }
-    res.json(fiscal);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-})
-
-// PUT: Atualizar cálculo fiscal e recalcular
-router.put('/:id', async (req, res) => {
-  try {
-    const { receitaBruta12M, receitaMensal, folhaSalarios12M } = req.body;
-
-    const fiscal = await FiscalIris.findById(req.params.id);
-    if (!fiscal || fiscal.deletedAt) {
-      return res.status(404).json({ error: 'Registro não encontrado' });
+    if (!calculo) {
+      return res.status(404).json({ error: 'Cálculo não encontrado' });
     }
 
-    // Recalcular Fator R e DAS
-    const fatorR = folhaSalarios12M / receitaBruta12M;
-    const anexo = fatorR >= 0.28 ? 'Anexo III' : 'Anexo V';
-    const valorDAS = receitaMensal * 0.18; // Exemplo de cálculo
-
-    fiscal.set({
-      ...req.body,
-      fatorR,
-      anexo,
-      valorDAS,
-      updatedAt: new Date(),
-    });
-
-    await fiscal.save();
-
-    res.json(fiscal);
+    res.status(200).json(calculo);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-})
+});
 
-// DELETE: Exclusão lógica
-router.delete('/:id', async (req, res) => {
+router.put('/iris/:id', async (req, res) => {
   try {
-    const fiscal = await FiscalIris.findByIdAndUpdate(
-      req.params.id,
-      { deletedAt: new Date() },
-      { new: true }
+    const { id } = req.params;
+    const data = req.body;
+    data.updatedAt = new Date();
+
+    const result = await db.collection('fiscal_iris').updateOne(
+      { _id: ObjectId(id), deletedAt: null },
+      { $set: data }
     );
-    if (!fiscal) {
-      return res.status(404).json({ error: 'Registro não encontrado' });
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: 'Cálculo não encontrado' });
     }
-    res.json({ message: 'Registro excluído logicamente' });
+
+    res.status(200).json({ message: 'Cálculo atualizado com sucesso' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-})
+});
 
-module.exports = router
+router.delete('/iris/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await db.collection('fiscal_iris').updateOne(
+      { _id: ObjectId(id), deletedAt: null },
+      { $set: { deletedAt: new Date() } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: 'Cálculo não encontrado' });
+    }
+
+    res.status(200).json({ message: 'Cálculo excluído com sucesso' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+module.exports = router;

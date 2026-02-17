@@ -19,6 +19,11 @@ app.use(auditoria)
 app.use('/empresas', require('./routes/empresas'))
 app.use('/ocr', require('./routes/ocr'))
 app.use('/dashboard', require('./routes/dashboard'))
+console.log('Registrando middleware para /api/fiscal')
+app.use('/api/fiscal', (req, res, next) => {
+  console.log(`Requisição recebida no middleware '/api/fiscal': ${req.method} ${req.originalUrl}`)
+  next()
+})
 app.use('/api/fiscal', require('./routes/fiscal'))
 
 app.listen(3000, () =>
